@@ -297,8 +297,11 @@ def main():
         # PCA Configuration
         st.subheader("PCA Settings")
         max_components = len(selected_params)
-        n_components = st.slider("Number of Principal Components", 2, max_components, 
-                                  min(5, max_components), key="n_comp")
+        # Ensure slider has valid range (min < max)
+        slider_max = max(2, max_components)
+        slider_default = min(5, max_components)
+        n_components = st.slider("Number of Principal Components", 1, slider_max, 
+                                  slider_default, key="n_comp")
         
         st.markdown("---")
         

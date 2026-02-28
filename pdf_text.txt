@@ -1,0 +1,72 @@
+The Urban Environmental Intelligence Challenge  
+Data Source  
+Data Source:  OpenAQ Global Air Quality API  (Fetch parameters for 100 stations for the 
+entire year 2025).  
+Scenario  
+You are the Lead Data Architect for a Smart City initiative. You are working with a multi -
+gigabyte dataset collected from 100 global sensor nodes . Each node records hourly values 
+for PM2.5, PM10, NO2, Ozone, Temperature, and Humidity throughout the year 2025.  
+Objective  
+Your goal is to build a diagnostic engine that can identify environmental anomalies. The 
+engine will be evaluated on your ability to choose visualizations that maximize data -ink 
+ratio  and minimize scale distortion . 
+Task 1: The Dimensionality Challenge (25%)  
+You are required to analyze the relationships among six different environmental variables 
+monitored by 100 sensors.  
+• The Problem:  Standard scatter plots are ineffective due to the high number of 
+dimensions and data points, making the visualization unreadable.  
+• The Task:  Apply a Dimensionality Reduction  technique to project the six -
+dimensional data into two dimensions.  (Hint : First standardize the six environmental 
+variables, then apply a dimensionality reduction technique that transforms correlated 
+features into a smaller set of new axes. After projecting the data into two dimensions, 
+analyze the loadings of each axis to deter mine which variables contribute most to the 
+separation between Industrial and Residential zones. ) 
+• The Analysis:  Present a visualization that highlights how city zones (Industrial vs. 
+Residential) cluster together. Provide justification for your choice of dimensionality 
+reduction method, and explain what the "loadings" of your axes reveal about the main 
+drivers of u rban pollution.  
+Task 2: High -Density Temporal Analysis (25%)  
+The Mayor needs to review instances where "Health Threshold Violations" (PM2.5 > 35 
+µg/m³) have occurred across all 100 sensors simultaneously  to determine which 
+neighborhoods consistently exceed safe limits.  
+• The Problem:  A standard line chart with 100 lines results in excessive chart clutter.  
+• The Task:  Choose and implement a high -density temporal visualization method that 
+enables the comparison of 100 time -series within a compact space, avoiding 
+overplotting.  
+• The Analysis:  Use the chosen visualization to identify the "Periodic Signature" of 
+pollution events. Determine if they are driven by daily (24 -hour traffic cycles) or 
+monthly (30 -day seasonal shifts) patterns.  
+Task 3: Distribution Modeling & Tail Integrity (25%)  
+You are to report the probability of "Extreme Hazard" events, specifically when PM2.5 levels 
+exceed 200 µg/m³.  
+• The Problem:  Traditional histograms may obscure rare, extreme values due to bin 
+size choices, potentially hiding the "long tail."  
+• The Task:  Produce two different distribution plots for a selected industrial zone. One 
+plot should be optimized to reveal peaks , and the other to reveal tails. 
+• The Analysis:  Using these plots, determine the 99th percentile of pollution levels. 
+Provide a technical justification for which plot offers a more "honest" depiction of 
+these rare, hazardous events.  
+Task 4: The Visual Integrity Audit (25%)  
+You have been presented with a proposal to use a 3D bar chart to display Pollution vs. 
+Population Density vs. Region.  
+• The Task:  Decide whether to accept or reject this proposal based on the Lie Factor  
+and Data -Ink Ratio  principles.  
+• The Task:  If you reject the proposal, implement either a Bivariate Mapping  solution 
+or a Small Multiples  approach that accurately allows for comparison of these three 
+variables.  
+• The Analysis:  Justify your selection of a color scale (Sequential vs. Rainbow) with 
+respect to human perception of luminance.  
+Technical Constraints (Strict Enforcement)  
+1. Big Data Handling : After assignment 1 you are fully aware how to handle Big Data. 
+Apply those concepts here too.  
+2. No Graphical Ducks:  Avoid 3D effects, shadows, or unnecessary grids in all 
+visualizations.  
+3. Reproducibility:  Submit your work as a modular Python (.py) pipeline. Submissions 
+using Jupyter Notebooks will be penalized.  
+Interactive Streamlit Dashboard  
+Provide an interactive streamlit dashboard link.  
+Public -Facing Content  
+• Medium Blog Post Link  
+• LinkedIn Post Link  
+ 
+ 

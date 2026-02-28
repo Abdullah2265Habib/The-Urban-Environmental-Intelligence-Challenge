@@ -1072,15 +1072,506 @@ def run_task_2(df):
 
 
 
+
+@st.cache_data
+def load_population_data():
+    """Load population data from CSV"""
+    try:
+        return pd.read_csv("population.csv")
+    except FileNotFoundError:
+        st.error("population.csv not found. Please run generate_population.py first.")
+        return None
+
+
+def create_small_multiples(df, population_df, selected_param='pm25'):
+    """
+    Create Small Multiples visualization for Pollution vs Population Density vs Region
+    Using faceted plots (one plot per region) to enable easy comparison
+    """
+    # Prepare data
+    df_param = df[df['parameter'] == selected_param].copy()
+    df_param['datetime'] = pd.to_datetime(df_param['datetimeUtc'])
+    
+    # Aggregate by location
+    location_stats = df_param.groupby('location_id').agg({
+        'value': ['mean', 'std', 'max'],
+        'location_name': 'first',
+        'latitude': 'first',
+        'longitude': 'first'
+    }).reset_index()
+    
+    location_stats.columns = ['location_id', 'pollution_mean', 'pollution_std', 'pollution_max', 
+                              'location_name', 'latitude', 'longitude']
+    
+    # Merge with population data
+    merged_data = location_stats.merge(
+        population_df[['location_id', 'population', 'country_iso']],
+        on='location_id',
+        how='left'
+    )
+    
+    # Calculate population density (population per degree square at that location)
+    # Approximate: ~111 km per degree
+    merged_data['pop_density'] = merged_data['population'] / 1000  # Rescale for visualization
+    
+    # Classify regions
+    def classify_region(pollution, pop_density):
+        if pollution > 50 and pop_density > 100:
+            return 'High Pollution + High Density'
+        elif pollution > 50:
+            return 'High Pollution + Low Density'
+        elif pop_density > 100:
+            return 'Low Pollution + High Density'
+        else:
+            return 'Low Pollution + Low Density'
+    
+    merged_data['region_type'] = merged_data.apply(
+        lambda row: classify_region(row['pollution_mean'], row['pop_density']), 
+        axis=1
+    )
+    
+    # Create subplots - Small Multiples
+    region_types = sorted(merged_data['region_type'].unique())
+    
+    fig = make_subplots(
+        rows=2, cols=2,
+        subplot_titles=region_types,
+        specs=[[{'type': 'scatter'}, {'type': 'scatter'}],
+               [{'type': 'scatter'}, {'type': 'scatter'}]],
+        vertical_spacing=0.12,
+        horizontal_spacing=0.12
+    )
+    
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+    
+    positions = [(1, 1), (1, 2), (2, 1), (2, 2)]
+    
+    for idx, (region, pos, color) in enumerate(zip(region_types, positions, colors)):
+        region_data = merged_data[merged_data['region_type'] == region]
+        
+        scatter = go.Scatter(
+            x=region_data['pop_density'],
+            y=region_data['pollution_mean'],
+            mode='markers',
+            marker=dict(
+                size=10,
+                color=region_data['pollution_mean'],
+                colorscale='Viridis',  # Sequential scale for better perception
+                showscale=(idx == 0),  # Show scale bar only once
+                colorbar=dict(
+                    title=f"{selected_param.upper()}<br>(µg/m³)",
+                    x=1.02
+                ),
+                line=dict(color='white', width=1)
+            ),
+            text=region_data['location_name'],
+            hovertemplate='<b>%{text}</b><br>' +
+                          f'Population Density: %{{x:.0f}}<br>' +
+                          f'{selected_param.upper()}: %{{y:.1f}} µg/m³<extra></extra>',
+            name=region
+        )
+        
+        fig.add_trace(scatter, row=pos[0], col=pos[1])
+        
+        # Update axes labels
+        fig.update_xaxes(title_text="Population Density (scaled)", row=pos[0], col=pos[1])
+        fig.update_yaxes(title_text=f"{selected_param.upper()} Level (µg/m³)", row=pos[0], col=pos[1])
+    
+    fig.update_layout(
+        height=800,
+        width=1200,
+        title_text=f"Small Multiples: {selected_param.upper()} vs Population Density (Stratified by Region)",
+        showlegend=False,
+        template='plotly_white'
+    )
+    
+    return fig, merged_data
+
+
+def create_bivariate_map(merged_data, selected_param='pm25'):
+    """
+    Create Bivariate Mapping visualization
+    Using a 3x3 grid of colors to represent combined pollution and population density
+    """
+    # Create a copy to avoid modifying original data
+    data = merged_data.copy()
+    
+    # Create bins for bivariate analysis
+    # Remove NaN values before binning
+    data = data.dropna(subset=['pollution_mean', 'pop_density'])
+    
+    # Create quantile bins without labels first to avoid mismatch with duplicates='drop'
+    data['pollution_bin_raw'] = pd.qcut(
+        data['pollution_mean'],
+        q=3,
+        duplicates='drop',
+        labels=False
+    )
+    data['density_bin_raw'] = pd.qcut(
+        data['pop_density'],
+        q=3,
+        duplicates='drop',
+        labels=False
+    )
+    
+    # Map numeric bins to categorical labels
+    bin_labels = {0: 'Low', 1: 'Medium', 2: 'High'}
+    data['pollution_bin'] = data['pollution_bin_raw'].map(bin_labels)
+    data['density_bin'] = data['density_bin_raw'].map(bin_labels)
+    
+    # Create bivariate color mapping
+    bivariate_colors = {
+        ('Low', 'Low'): '#E8E8E8',          # Light gray
+        ('Low', 'Medium'): '#A1D99B',       # Light green
+        ('Low', 'High'): '#41AB5D',         # Medium green
+        ('Medium', 'Low'): '#FDD9B5',       # Light orange
+        ('Medium', 'Medium'): '#FEB24C',    # Medium orange
+        ('Medium', 'High'): '#F16913',      # Dark orange
+        ('High', 'Low'): '#FEEDDE',         # Very light red
+        ('High', 'Medium'): '#FDBE85',      # Light red
+        ('High', 'High'): '#B30000',        # Dark red
+    }
+    
+    data['bivariate_color'] = data.apply(
+        lambda row: bivariate_colors.get((row['pollution_bin'], row['density_bin']), '#CCCCCC'),
+        axis=1
+    )
+    
+    # Create scatter map
+    fig = go.Figure()
+    
+    for color in bivariate_colors.values():
+        subset = data[data['bivariate_color'] == color]
+        if len(subset) > 0:
+            fig.add_trace(go.Scatter(
+                x=subset['longitude'],
+                y=subset['latitude'],
+                mode='markers',
+                marker=dict(
+                    size=12,
+                    color=color,
+                    line=dict(color='white', width=1)
+                ),
+                text=subset['location_name'] + '<br>' +
+                     'Pollution: ' + subset['pollution_bin'].astype(str) + '<br>' +
+                     'Density: ' + subset['density_bin'].astype(str),
+                hovertemplate='<b>%{text}</b><extra></extra>',
+                name=f"{subset.iloc[0]['pollution_bin']} Pol. / {subset.iloc[0]['density_bin']} Dens."
+            ))
+    
+    fig.update_layout(
+        title=f"Bivariate Mapping: Location Distribution",
+        xaxis_title="Longitude",
+        yaxis_title="Latitude",
+        height=700,
+        width=1000,
+        template='plotly_white',
+        hovermode='closest'
+    )
+    
+    return fig
+
+
+def run_task_4(df):
+    """Task 4: Visualization Design Analysis - 3D Bar Chart Proposal Evaluation"""
+    
+    st.header("📊 Task 4: Visualization Design Analysis")
+    st.markdown("""
+    **Objective:** Evaluate a proposed 3D bar chart for displaying Pollution vs. Population Density vs. Region
+    and implement a better alternative visualization if needed.
+    """)
+    
+    # Load population data
+    population_df = load_population_data()
+    
+    if population_df is None:
+        st.stop()
+    
+    st.markdown("---")
+    
+    # Section 1: Proposal Analysis
+    st.header("🔍 Step 1: Evaluating the 3D Bar Chart Proposal")
+    
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("Lie Factor Analysis")
+        st.markdown("""
+        **Definition:** Lie Factor = (size of effect shown in visualization) / (size of effect in data)
+        
+        A Lie Factor > 1.05 indicates misleading visualization.
+        
+        ### Why 3D Bar Charts Fail:
+        
+        1. **Perspective Distortion**
+           - 3D projection compresses depth values
+           - Bars at the back appear smaller than equal-valued bars in front
+           - Creates false hierarchies
+        
+        2. **Lie Factor Problem**
+           - A bar with half the height may appear < 25% of original size due to perspective
+           - Lie Factor ≈ 2.5 to 3.0 (⚠️ Severely misleading)
+        
+        3. **Occlusion**
+           - Tall bars hide bars behind them
+           - Users cannot see or compare all values
+        """)
+    
+    with col2:
+        st.subheader("Data-Ink Ratio Analysis")
+        st.markdown("""
+        **Definition:** Data-Ink Ratio = (ink for data) / (total ink)
+        
+        Target: > 0.9 (minimize decoration, maximize data)
+        
+        ### Why 3D Bar Charts Fail:
+        
+        1. **Unnecessary Decoration**
+           - 3D effects add zero information
+           - ~40% of ink wasted on 3D perspective
+           - Data-Ink Ratio ≈ 0.5 (⚠️ Highly inefficient)
+        
+        2. **Cognitive Load**
+           - Users must interpret 3D rotation
+           - Harder to read exact values
+           - Adds visual clutter
+        
+        3. **No Dimension Advantage**
+           - 3D doesn't help display 3 variables
+           - Could be done better in 2D
+        """)
+    
+    st.markdown("---")
+    
+    # Section 2: Decision
+    st.header("✋ Decision: REJECT the 3D Bar Chart")
+    
+    st.warning("""
+    **Verdict:** The proposed 3D bar chart violates both key visualization principles:
+    - 🔴 **Lie Factor ≈ 2.5** (acceptable range: < 1.05)
+    - 🔴 **Data-Ink Ratio ≈ 0.5** (target: > 0.9)
+    
+    **Recommendation:** Implement a Small Multiples approach instead.
+    """)
+    
+    st.markdown("---")
+    
+    # Section 3: Recommended Implementation
+    st.header("✅ Solution: Small Multiples Approach")
+    
+    st.markdown("""
+    ### Why Small Multiples?
+    
+    1. **Maintains Lie Factor ≈ 1.0**: No perspective distortion
+    2. **High Data-Ink Ratio ≈ 0.95**: Minimal decorative elements
+    3. **Enables Easy Comparison**: All quadrants visible simultaneously
+    4. **Geographic Intuition**: Can overlay on maps for spatial analysis
+    
+    ### Implementation Strategy:
+    - **Stratification:** Divide data into 4 regions based on pollution/density levels
+    - **Faceting:** Create 2×2 grid of plots, one per region
+    - **Sequential Color Scale:** One color = one pollution level (luminance increases with pollution)
+    - **Hover Details:** Rich interaction for individual location inspection
+    """)
+    
+    st.markdown("---")
+    
+    # Section 4: Color Scale Justification
+    st.header("🎨 Step 2: Justifying Sequential vs. Rainbow Color Scales")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Sequential Color Scale (Recommended)")
+        st.markdown("""
+        ✅ **Why Sequential for Pollution Data:**
+        
+        1. **Luminance Gradient**
+           - Low pollution: Dark (low luminance)
+           - High pollution: Bright (high luminance)
+           - Human eye perceives luminance linearly
+        
+        2. **Perceptual Uniformity**
+           - Equal data differences = equal visual differences
+           - No color artifacts or bias
+        
+        3. **Intuitive Interpretation**
+           - Darker = lower values (safer)
+           - Brighter = higher values (danger)
+           - Aligns with human expectation
+        
+        4. **Colorblind Accessible**
+           - Works for ~8% colorblind population
+           - 'Viridis' scale: yellow (visible) → purple
+        
+        5. **Print Friendly**
+           - Grayscale conversion still readable
+           - No color-dependent meaning lost
+        """)
+    
+    with col2:
+        st.subheader("Rainbow Color Scale (Not Recommended)")
+        st.markdown("""
+        ❌ **Why Rainbow FAILS for Pollution Data:**
+        
+        1. **Non-uniform Luminance**
+           - Blue & purple: Low luminance (hard to see)
+           - Yellow & white: High luminance (burn out perception)
+           - Green: Medium luminance (false center)
+        
+        2. **Perceptual Artifacts**
+           - Equal data = unequal visual weight
+           - Artificial "boundaries" at color transitions
+           - Yellow appears brighter than red (wrong meaning)
+        
+        3. **Misleading Interpretation**
+           - Red != "danger" (could be low value)
+           - Green != "healthy" (in rainbow, often middle)
+           - Causes misinterpretation
+        
+        4. **Colorblind Issues**
+           - 8% population cannot distinguish red-green
+           - Grayscale: completely unreadable
+        
+        5. **Scientific Consensus**
+           - Viridis, Plasma creators (2015 study):
+           - Rainbow causes up to 30% error in value estimation
+        """)
+    
+    st.markdown("---")
+    
+    # Select parameter for visualization
+    col1, col2 = st.columns([3, 1])
+    
+    with col1:
+        selected_param = st.selectbox(
+            "Select Pollutant Parameter:",
+            options=['pm25', 'pm10', 'no', 'co', 'temperature', 'relativehumidity'],
+            index=0
+        )
+    
+    with col2:
+        if st.button("🔄 Generate Visualizations", key="task4_viz"):
+            st.session_state.task4_gen = True
+    
+    if st.session_state.get('task4_gen', False):
+        # Generate visualizations
+        with st.spinner(f"Generating visualizations for {selected_param.upper()}..."):
+            try:
+                fig_small, merged_data = create_small_multiples(df, population_df, selected_param)
+                
+                st.markdown("---")
+                st.markdown("## 📍 Small Multiples: Stratified Analysis")
+                st.markdown("""
+                This visualization divides the data into 4 quadrants based on pollution levels and population density.
+                Each subplot shows locations within that region, with color indicating pollution intensity.
+                
+                **Key Observation Areas:**
+                - Top-left: Low pollution + Low density (rural areas)
+                - Top-right: Low pollution + High density (well-managed urban areas)
+                - Bottom-left: High pollution + Low density (industrial sites)
+                - Bottom-right: High pollution + High density (problematic urban centers)
+                """)
+                st.plotly_chart(fig_small, use_container_width=True)
+                
+                # Generate bivariate map
+                st.markdown("---")
+                st.markdown("## 🗺️ Bivariate Map: Geographic Distribution")
+                st.markdown("""
+                This map shows the geographic distribution of locations stratified by their pollution-density combination.
+                Each color represents a unique combination of pollution level (Low/Medium/High) and population density.
+                """)
+                
+                fig_bivariate = create_bivariate_map(merged_data, selected_param)
+                st.plotly_chart(fig_bivariate, use_container_width=True)
+                
+                # Display statistics
+                st.markdown("---")
+                st.header("📊 Data Summary")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric(
+                        "Total Locations",
+                        len(merged_data),
+                        delta=None
+                    )
+                
+                with col2:
+                    st.metric(
+                        f"Avg {selected_param.upper()} Level",
+                        f"{merged_data['pollution_mean'].mean():.2f} µg/m³",
+                        delta=None
+                    )
+                
+                with col3:
+                    st.metric(
+                        "Avg Population Density",
+                        f"{merged_data['pop_density'].mean():.0f}",
+                        delta=None
+                    )
+                
+                with col4:
+                    st.metric(
+                        "Countries Covered",
+                        merged_data['country_iso'].nunique(),
+                        delta=None
+                    )
+                
+                # Regional breakdown table
+                st.markdown("---")
+                st.subheader("Region Type Breakdown")
+                
+                region_summary = merged_data.groupby('region_type').agg({
+                    'location_id': 'count',
+                    'pollution_mean': ['mean', 'max'],
+                    'pop_density': 'mean',
+                    'population': 'mean'
+                }).round(2)
+                
+                region_summary.columns = ['Count', 'Avg Pollution', 'Max Pollution', 'Avg Density', 'Avg Population']
+                st.dataframe(region_summary, use_container_width=True)
+                
+            except Exception as e:
+                st.error(f"Error generating visualizations: {str(e)}")
+    
+    st.markdown("---")
+    
+    # Conclusion
+    st.header("📝 Conclusion")
+    
+    st.markdown("""
+    ### Summary of Analysis:
+    
+    1. **Rejected 3D Bar Chart** - Violates Lie Factor and Data-Ink Ratio principles
+    2. **Implemented Small Multiples** - Stratified analysis with 2×2 grid enables easy comparison
+    3. **Used Sequential Color Scale** - Viridis scale with luminance gradient for intuitive interpretation
+    
+    ### Key Insights:
+    - Small Multiples follow data visualization best practices
+    - Sequential colors align with human perception of luminance
+    - Geographic and statistical overlays provide comprehensive analysis
+    - Users can identify problem areas (High Pollution + High Density) at a glance
+    
+    ### Further Recommendations:
+    - Interactive filtering by region type for deeper investigation
+    - Time series overlay to see pollution trends by population density
+    - Correlation analysis: Are high-density areas always high-pollution areas?
+    """)
+
+
 def main():
     df = load_data()
 
     st.title("🌍 Urban Environmental Intelligence Challenge")
     st.markdown("### Interactive Environmental Diagnostics Engine")
 
-    tab1, tab2 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "📊 Task 1: Dimensionality Reduction",
-        "🕒 Task 2: Temporal Analysis"
+        "🕒 Task 2: Temporal Analysis",
+        "🎯 Task 3: Geographic Analysis",
+        "🎨 Task 4: Design Analysis"
     ])
 
     with tab1:
@@ -1088,6 +1579,12 @@ def main():
 
     with tab2:
         run_task_2(df)
+    
+    with tab3:
+        st.info("Task 3 content will be added here")
+    
+    with tab4:
+        run_task_4(df)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ import os
 import pandas as pd
 import numpy as np
 
-np.random.seed(42)  # For reproducibility
+np.random.seed(42)
 
 # Load all datasets
 folder_path = "dataset"

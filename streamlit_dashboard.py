@@ -652,427 +652,6 @@ def run_task_1(df):
     - A small number of principal components capture most variance
     - Certain pollutants are stronger differentiators between zones
     """)
-
-
-
-
-def prepare_data_for_heatmap(df):
-    pm25_df = df[df['parameter'] == 'pm25'].copy()
-    time_col = 'datetimeLocal' if 'datetimeLocal' in pm25_df.columns else 'datetimeUtc'
-    pm25_df['datetime'] = pd.to_datetime(pm25_df[time_col], utc=True).dt.tz_convert(None)
-    pm25_df['hour'] = pm25_df['datetime'].dt.hour
-    pm25_df['day_of_year'] = pm25_df['datetime'].dt.dayofyear
-    pm25_df['month'] = pm25_df['datetime'].dt.month
-    pm25_df['location_label'] = pm25_df['location_id'].astype(str) + " - " + pm25_df['location_name'].astype(str).str[:15]
-    return pm25_df
-
-def create_high_density_heatmap(df, time_resolution='hour'):
-    if time_resolution == 'hour':
-        heatmap_data = df.groupby(['location_label', 'hour'])['value'].mean().reset_index()
-        pivot_df = heatmap_data.pivot(index='location_label', columns='hour', values='value')
-        x_label = "Hour of Day (0-23)"
-        title = "Daily Periodic Signature (Average PM2.5 by Hour)"
-    elif time_resolution == 'day':
-        heatmap_data = df.groupby(['location_label', 'day_of_year'])['value'].mean().reset_index()
-        pivot_df = heatmap_data.pivot(index='location_label', columns='day_of_year', values='value')
-        x_label = "Day of Year (1-365)"
-        title = "Seasonal Periodic Signature (Average PM2.5 by Day)"
-    else:
-        raise ValueError("Invalid time resolution")
-        
-    if len(pivot_df) > 100:
-        pivot_df = pivot_df.head(100)
-    pivot_df = pivot_df.sort_index(ascending=False) 
-
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot_df.values,
-        x=pivot_df.columns,
-        y=pivot_df.index,
-        colorscale=[
-            [0.0, 'lightgreen'],    # Excellent
-            [0.2, 'green'],         # Good (0-15)
-            [0.35, 'yellow'],       # Moderate (15-35)
-            [0.3501, 'orange'],     # Health Hazard Limit threshold (35)
-            [0.55, 'red'],          # Unhealthy
-            [0.8, 'purple'],        # Very Unhealthy
-            [1.0, 'maroon']         # Hazardous
-        ],
-        zmin=0,
-        zmax=100,
-        colorbar=dict(
-            title="PM2.5 (µg/m³)",
-            tickvals=[0, 15, 35, 55, 75],
-            ticktext=['0', '15', '35 (Hazard)', '55', '75+']
-        ),
-        hovertemplate='Location: %{y}<br>Time: %{x}<br>PM2.5: %{z:.1f} µg/m³<extra></extra>'
-    ))
-
-    fig.update_layout(
-        title=title,
-        xaxis_title=x_label,
-        yaxis_title="Sensor Locations",
-        height=800,  
-        width=1000,
-        yaxis=dict(
-            title_standoff=0,
-            tickfont=dict(size=8),
-            autorange='reversed'
-        ),
-        template='plotly_white',
-        margin=dict(l=150, r=20, t=60, b=40)
-    )
-    
-    fig.add_annotation(
-        text="Target: Identify values > 35 µg/m³ (Orange/Red)",
-        xref="paper", yref="paper",
-        x=1.0, y=1.05,
-        showarrow=False,
-        font=dict(size=12, color="red")
-    )
-
-    return fig
-
-def run_task_2(df):
-    st.header("🕒 Task 2: High-Density Temporal Analysis")
-    st.markdown('''
-    **Objective:** Identify "Health Threshold Violations" (PM2.5 > 35 µg/m³) across all 100 sensors simultaneously
-    using a high-density temporal visualization to prevent "spaghetti chart" clutter.
-    ''')
-    
-    with st.spinner("Processing temporal data..."):
-        pm25_df = prepare_data_for_heatmap(df)
-        
-    if pm25_df.empty:
-        st.error("No PM2.5 data found in the dataset.")
-        return
-        
-    st.markdown("---")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        time_res = st.radio(
-            "Select Time Resolution to find Periodic Signatures:",
-            options=['Daily (Hour of Day)', 'Seasonal (Day of Year)'],
-            help="Switch between daily cycles (traffic patterns) and seasonal/monthly shifts.",
-            horizontal=True
-        )
-        resolution_key = 'hour' if 'Daily' in time_res else 'day'
-        
-    with col2:
-        st.markdown('''
-        **Color Legend**
-        - 🟢 **< 15**: Good
-        - 🟡 **15 - 35**: Moderate
-        - 🟠 **35 - 55**: Unhealthy (Violation Target)
-        - 🔴 **> 55**: Hazardous
-        ''')
-        
-    fig_map = create_high_density_heatmap(pm25_df, time_resolution=resolution_key)
-    st.plotly_chart(fig_map, use_container_width=True)
-        
-    st.markdown("---")
-    
-    st.header("💡 Analysis & Findings")
-    st.markdown('''
-    ### Determining the Periodic Signature
-    
-    By switching between the Daily and Seasonal views above, we avoid the overplotting of 100 line charts and clearly see the pollution patterns:
-    
-    1. **Daily Signatures (24-hour cycle):** Look at the 'Daily' resolution. If you observe intense vertical bands of color (Orange/Red > 35 µg/m³) consistently appearing around specific hours (e.g., 07:00-09:00 and 17:00-19:00), this strongly indicates **traffic-driven periodic signatures** typical of rush hours.
-    2. **Seasonal Signatures (Monthly/Yearly):** Look at the 'Seasonal' resolution. If solid blocks of intense pollution span multiple consecutive days or weeks (e.g., dense red bands clustered in winter months: Day 1-60 and Day 300-365), this suggests **weather-driven or seasonal periodic signatures** such as increased heating demand or atmospheric inversions.
-    
-    *Constraint Checked: Avoided "Spaghetti Chart" clutter by using a Heatmap with High-Density 2D layout. Minimized scale distortion by enforcing a custom color gradient centered around the Mayor's critical threshold of 35 µg/m³.*
-    ''')
-
-
-
-
-
-
-def prepare_data_for_heatmap(df):
-    pm25_df = df[df['parameter'] == 'pm25'].copy()
-    time_col = 'datetimeLocal' if 'datetimeLocal' in pm25_df.columns else 'datetimeUtc'
-    pm25_df['datetime'] = pd.to_datetime(pm25_df[time_col], utc=True).dt.tz_convert(None)
-    pm25_df['hour'] = pm25_df['datetime'].dt.hour
-    pm25_df['day_of_year'] = pm25_df['datetime'].dt.dayofyear
-    pm25_df['month'] = pm25_df['datetime'].dt.month
-    pm25_df['location_label'] = pm25_df['location_id'].astype(str) + " - " + pm25_df['location_name'].astype(str).str[:15]
-    return pm25_df
-
-def create_high_density_heatmap(df, time_resolution='hour'):
-    if time_resolution == 'hour':
-        heatmap_data = df.groupby(['location_label', 'hour'])['value'].mean().reset_index()
-        pivot_df = heatmap_data.pivot(index='location_label', columns='hour', values='value')
-        x_label = "Hour of Day (0-23)"
-        title = "Daily Periodic Signature (Average PM2.5 by Hour)"
-    elif time_resolution == 'day':
-        heatmap_data = df.groupby(['location_label', 'day_of_year'])['value'].mean().reset_index()
-        pivot_df = heatmap_data.pivot(index='location_label', columns='day_of_year', values='value')
-        x_label = "Day of Year (1-365)"
-        title = "Seasonal Periodic Signature (Average PM2.5 by Day)"
-    else:
-        raise ValueError("Invalid time resolution")
-        
-    if len(pivot_df) > 100:
-        pivot_df = pivot_df.head(100)
-    pivot_df = pivot_df.sort_index(ascending=False) 
-
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot_df.values,
-        x=pivot_df.columns,
-        y=pivot_df.index,
-        colorscale=[
-            [0.0, 'lightgreen'],    # Excellent
-            [0.2, 'green'],         # Good (0-15)
-            [0.35, 'yellow'],       # Moderate (15-35)
-            [0.3501, 'orange'],     # Health Hazard Limit threshold (35)
-            [0.55, 'red'],          # Unhealthy
-            [0.8, 'purple'],        # Very Unhealthy
-            [1.0, 'maroon']         # Hazardous
-        ],
-        zmin=0,
-        zmax=100,
-        colorbar=dict(
-            title="PM2.5 (µg/m³)",
-            tickvals=[0, 15, 35, 55, 75],
-            ticktext=['0', '15', '35 (Hazard)', '55', '75+']
-        ),
-        hovertemplate='Location: %{y}<br>Time: %{x}<br>PM2.5: %{z:.1f} µg/m³<extra></extra>'
-    ))
-
-    fig.update_layout(
-        title=title,
-        xaxis_title=x_label,
-        yaxis_title="Sensor Locations",
-        height=800,  
-        width=1000,
-        yaxis=dict(
-            title_standoff=0,
-            tickfont=dict(size=8),
-            autorange='reversed'
-        ),
-        template='plotly_white',
-        margin=dict(l=150, r=20, t=60, b=40)
-    )
-    
-    fig.add_annotation(
-        text="Target: Identify values > 35 µg/m³ (Orange/Red)",
-        xref="paper", yref="paper",
-        x=1.0, y=1.05,
-        showarrow=False,
-        font=dict(size=12, color="red")
-    )
-
-    return fig
-
-def run_task_2(df):
-    st.header("🕒 Task 2: High-Density Temporal Analysis")
-    st.markdown('''
-    **Objective:** Identify "Health Threshold Violations" (PM2.5 > 35 µg/m³) across all 100 sensors simultaneously
-    using a high-density temporal visualization to prevent "spaghetti chart" clutter.
-    ''')
-    
-    with st.spinner("Processing temporal data..."):
-        pm25_df = prepare_data_for_heatmap(df)
-        
-    if pm25_df.empty:
-        st.error("No PM2.5 data found in the dataset.")
-        return
-        
-    st.markdown("---")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        time_res = st.radio(
-            "Select Time Resolution to find Periodic Signatures:",
-            options=['Daily (Hour of Day)', 'Seasonal (Day of Year)'],
-            help="Switch between daily cycles (traffic patterns) and seasonal/monthly shifts.",
-            horizontal=True
-        )
-        resolution_key = 'hour' if 'Daily' in time_res else 'day'
-        
-    with col2:
-        st.markdown('''
-        **Color Legend**
-        - 🟢 **< 15**: Good
-        - 🟡 **15 - 35**: Moderate
-        - 🟠 **35 - 55**: Unhealthy (Violation Target)
-        - 🔴 **> 55**: Hazardous
-        ''')
-        
-    fig_map = create_high_density_heatmap(pm25_df, time_resolution=resolution_key)
-    st.plotly_chart(fig_map, use_container_width=True)
-        
-    st.markdown("---")
-    
-    st.header("💡 Analysis & Findings")
-    st.markdown('''
-    ### Determining the Periodic Signature
-    
-    By switching between the Daily and Seasonal views above, we avoid the overplotting of 100 line charts and clearly see the pollution patterns:
-    
-    1. **Daily Signatures (24-hour cycle):** Look at the 'Daily' resolution. If you observe intense vertical bands of color (Orange/Red > 35 µg/m³) consistently appearing around specific hours (e.g., 07:00-09:00 and 17:00-19:00), this strongly indicates **traffic-driven periodic signatures** typical of rush hours.
-    2. **Seasonal Signatures (Monthly/Yearly):** Look at the 'Seasonal' resolution. If solid blocks of intense pollution span multiple consecutive days or weeks (e.g., dense red bands clustered in winter months: Day 1-60 and Day 300-365), this suggests **weather-driven or seasonal periodic signatures** such as increased heating demand or atmospheric inversions.
-    
-    *Constraint Checked: Avoided "Spaghetti Chart" clutter by using a Heatmap with High-Density 2D layout. Minimized scale distortion by enforcing a custom color gradient centered around the Mayor's critical threshold of 35 µg/m³.*
-    ''')
-
-# def run_task_1(df):
-#     st.title("🌍 Urban Environmental Intelligence Challenge")
-#     st.markdown("### Interactive Environmental Diagnostics Engine")
-    
-#     st.info("📊 Loading environmental data from 100 sensors... (This may take a moment)")
-#     df = load_data()
-    
-#     tab1, tab2 = st.tabs(["Task 1: Dimensionality Reduction", "Task 2: Temporal Analysis"])
-    
-#     with tab1:
-#         run_task_1(df)   # This calls your REAL PCA function
-        
-#     with tab2:
-#         run_task_2(df)
-
-
-
-
-
-def prepare_data_for_heatmap(df):
-    pm25_df = df[df['parameter'] == 'pm25'].copy()
-    time_col = 'datetimeLocal' if 'datetimeLocal' in pm25_df.columns else 'datetimeUtc'
-    pm25_df['datetime'] = pd.to_datetime(pm25_df[time_col], utc=True).dt.tz_convert(None)
-    pm25_df['hour'] = pm25_df['datetime'].dt.hour
-    pm25_df['day_of_year'] = pm25_df['datetime'].dt.dayofyear
-    pm25_df['month'] = pm25_df['datetime'].dt.month
-    pm25_df['location_label'] = pm25_df['location_id'].astype(str) + " - " + pm25_df['location_name'].astype(str).str[:15]
-    return pm25_df
-
-def create_high_density_heatmap(df, time_resolution='hour'):
-    if time_resolution == 'hour':
-        heatmap_data = df.groupby(['location_label', 'hour'])['value'].mean().reset_index()
-        pivot_df = heatmap_data.pivot(index='location_label', columns='hour', values='value')
-        x_label = "Hour of Day (0-23)"
-        title = "Daily Periodic Signature (Average PM2.5 by Hour)"
-    elif time_resolution == 'day':
-        heatmap_data = df.groupby(['location_label', 'day_of_year'])['value'].mean().reset_index()
-        pivot_df = heatmap_data.pivot(index='location_label', columns='day_of_year', values='value')
-        x_label = "Day of Year (1-365)"
-        title = "Seasonal Periodic Signature (Average PM2.5 by Day)"
-    else:
-        raise ValueError("Invalid time resolution")
-        
-    if len(pivot_df) > 100:
-        pivot_df = pivot_df.head(100)
-    pivot_df = pivot_df.sort_index(ascending=False) 
-
-    fig = go.Figure(data=go.Heatmap(
-        z=pivot_df.values,
-        x=pivot_df.columns,
-        y=pivot_df.index,
-        colorscale=[
-            [0.0, 'lightgreen'],    # Excellent
-            [0.2, 'green'],         # Good (0-15)
-            [0.35, 'yellow'],       # Moderate (15-35)
-            [0.3501, 'orange'],     # Health Hazard Limit threshold (35)
-            [0.55, 'red'],          # Unhealthy
-            [0.8, 'purple'],        # Very Unhealthy
-            [1.0, 'maroon']         # Hazardous
-        ],
-        zmin=0,
-        zmax=100,
-        colorbar=dict(
-            title="PM2.5 (µg/m³)",
-            tickvals=[0, 15, 35, 55, 75],
-            ticktext=['0', '15', '35 (Hazard)', '55', '75+']
-        ),
-        hovertemplate='Location: %{y}<br>Time: %{x}<br>PM2.5: %{z:.1f} µg/m³<extra></extra>'
-    ))
-
-    fig.update_layout(
-        title=title,
-        xaxis_title=x_label,
-        yaxis_title="Sensor Locations",
-        height=800,  
-        width=1000,
-        yaxis=dict(
-            title_standoff=0,
-            tickfont=dict(size=8),
-            autorange='reversed'
-        ),
-        template='plotly_white',
-        margin=dict(l=150, r=20, t=60, b=40)
-    )
-    
-    fig.add_annotation(
-        text="Target: Identify values > 35 µg/m³ (Orange/Red)",
-        xref="paper", yref="paper",
-        x=1.0, y=1.05,
-        showarrow=False,
-        font=dict(size=12, color="red")
-    )
-
-    return fig
-
-def run_task_2(df):
-    st.header("🕒 Task 2: High-Density Temporal Analysis")
-    st.markdown('''
-    **Objective:** Identify "Health Threshold Violations" (PM2.5 > 35 µg/m³) across all 100 sensors simultaneously
-    using a high-density temporal visualization to prevent "spaghetti chart" clutter.
-    ''')
-    
-    with st.spinner("Processing temporal data..."):
-        pm25_df = prepare_data_for_heatmap(df)
-        
-    if pm25_df.empty:
-        st.error("No PM2.5 data found in the dataset.")
-        return
-        
-    st.markdown("---")
-    
-    col1, col2 = st.columns([3, 1])
-    
-    with col1:
-        time_res = st.radio(
-            "Select Time Resolution to find Periodic Signatures:",
-            options=['Daily (Hour of Day)', 'Seasonal (Day of Year)'],
-            help="Switch between daily cycles (traffic patterns) and seasonal/monthly shifts.",
-            horizontal=True
-        )
-        resolution_key = 'hour' if 'Daily' in time_res else 'day'
-        
-    with col2:
-        st.markdown('''
-        **Color Legend**
-        - 🟢 **< 15**: Good
-        - 🟡 **15 - 35**: Moderate
-        - 🟠 **35 - 55**: Unhealthy (Violation Target)
-        - 🔴 **> 55**: Hazardous
-        ''')
-        
-    fig_map = create_high_density_heatmap(pm25_df, time_resolution=resolution_key)
-    st.plotly_chart(fig_map, use_container_width=True)
-        
-    st.markdown("---")
-    
-    st.header("💡 Analysis & Findings")
-    st.markdown('''
-    ### Determining the Periodic Signature
-    
-    By switching between the Daily and Seasonal views above, we avoid the overplotting of 100 line charts and clearly see the pollution patterns:
-    
-    1. **Daily Signatures (24-hour cycle):** Look at the 'Daily' resolution. If you observe intense vertical bands of color (Orange/Red > 35 µg/m³) consistently appearing around specific hours (e.g., 07:00-09:00 and 17:00-19:00), this strongly indicates **traffic-driven periodic signatures** typical of rush hours.
-    2. **Seasonal Signatures (Monthly/Yearly):** Look at the 'Seasonal' resolution. If solid blocks of intense pollution span multiple consecutive days or weeks (e.g., dense red bands clustered in winter months: Day 1-60 and Day 300-365), this suggests **weather-driven or seasonal periodic signatures** such as increased heating demand or atmospheric inversions.
-    
-    *Constraint Checked: Avoided "Spaghetti Chart" clutter by using a Heatmap with High-Density 2D layout. Minimized scale distortion by enforcing a custom color gradient centered around the Mayor's critical threshold of 35 µg/m³.*
-    ''')
-
-
-
-
-
-
-
 @st.cache_data
 def load_population_data():
     """Load population data from CSV"""
@@ -1186,6 +765,104 @@ def create_small_multiples(df, population_df, selected_param='pm25'):
     )
     
     return fig, merged_data
+
+
+def run_task_3(df):
+    """Task 3: Distribution Modeling & Tail Integrity"""
+    st.header("🏭 Task 3: Distribution Modeling & Tail Integrity")
+    st.markdown('''
+    **Objective:** Report the probability of "Extreme Hazard" events (PM2.5 > 200 µg/m³) and produce distribution plots optimized for peaks vs. tails for an industrial zone.
+    ''')
+    
+    # Filter for PM2.5
+    pm25_df = df[df['parameter'] == 'pm25'].copy()
+    
+    if pm25_df.empty:
+        st.error("No PM2.5 data available.")
+        return
+        
+    # Classify zones using same heuristic
+    industrial_keywords = ['industrial', 'factory', 'station', 'port', 'airport', 'highway', 'urban', 'city']
+    
+    def is_industrial(name):
+        name_lower = str(name).lower()
+        return any(k in name_lower for k in industrial_keywords)
+        
+    pm25_df['is_industrial'] = pm25_df['location_name'].apply(is_industrial)
+    industrial_df = pm25_df[pm25_df['is_industrial']]
+    
+    if industrial_df.empty:
+        # Fallback to all data if no industrial matched
+        industrial_df = pm25_df
+        st.warning("Could not explicitly identify industrial zones, using all available locations.")
+        
+    # Let user select a specific industrial location
+    locations = industrial_df['location_name'].unique()
+    selected_loc = st.selectbox("Select an Industrial Zone for Analysis:", sorted(locations))
+    
+    loc_data = industrial_df[industrial_df['location_name'] == selected_loc].dropna(subset=['value'])
+    
+    if loc_data.empty:
+        st.warning("No valid data for selected location.")
+        return
+        
+    st.markdown("---")
+    
+    # Computations
+    total_obs = len(loc_data)
+    extreme_obs = len(loc_data[loc_data['value'] > 200])
+    prob_extreme = (extreme_obs / total_obs) * 100 if total_obs > 0 else 0
+    p99 = np.percentile(loc_data['value'], 99)
+    
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Observations", f"{total_obs:,}")
+    col2.metric("99th Percentile", f"{p99:.2f} µg/m³")
+    col3.metric("Prob(PM2.5 > 200)", f"{prob_extreme:.3f}%")
+    
+    st.markdown("---")
+    
+    # Visualizations
+    st.subheader("Distribution Plots: Peaks vs Tails")
+    
+    tab_a, tab_b = st.tabs(["📊 Linear Scale (Optimized for Peaks)", "📉 Log Scale (Optimized for Tails)"])
+    
+    with tab_a:
+        fig_linear = px.histogram(
+            loc_data, x="value", nbins=50,
+            title=f"Linear Histogram for {selected_loc}",
+            labels={"value": "PM2.5 (µg/m³)"},
+            color_discrete_sequence=['#3b5998']
+        )
+        fig_linear.add_vline(x=p99, line_dash="dash", line_color="red", annotation_text="99th Pct")
+        fig_linear.update_layout(template='plotly_white')
+        st.plotly_chart(fig_linear, use_container_width=True)
+        st.markdown("**Observation:** The linear scale shows where the vast majority of normal readings occur (the 'peaks'). However, values beyond 100 or 200 µg/m³ are visually compressed into the baseline, hiding the severity and frequency of extreme events.")
+        
+    with tab_b:
+        fig_log = px.histogram(
+            loc_data, x="value", nbins=50, log_y=True,
+            title=f"Log-Y Histogram for {selected_loc}",
+            labels={"value": "PM2.5 (µg/m³)"},
+            color_discrete_sequence=['#e74c3c']
+        )
+        fig_log.add_vline(x=p99, line_dash="dash", line_color="black", annotation_text="99th Pct")
+        fig_log.add_vline(x=200, line_dash="solid", line_color="darkred", annotation_text="Extreme Hazard (>200)")
+        fig_log.update_layout(template='plotly_white')
+        st.plotly_chart(fig_log, use_container_width=True)
+        st.markdown("**Observation:** The logarithmic Y-axis prevents the extreme values from being dwarfed by the common values. Even rare occurrences (e.g., counts of 1 or 2) remain visible, clearly revealing the 'long tail' of toxic exposures.")
+        
+    st.markdown("---")
+    
+    st.header("💡 Technical Justification")
+    st.markdown("""
+    ### Which plot offers a more "honest" depiction?
+    
+    For assessing **environmental hazards** and public health, the **Log-Scale Histogram** (optimized for tails) is significantly more "honest."
+    
+    1. **Visibility of the Long Tail:** In an environmental context, the most critical data points are often the outliers (the extreme hazard events). A linear histogram obscures these rare but deadly events because their frequency is dwarfed by normal background levels. The log-scale ensures that even single extreme occurrences are visually recognizable.
+    2. **Risk Assessment:** The 99th percentile was computed as **{:.2f} µg/m³**, highlighting that top 1% of exposure events are exceptionally high. A standard linear plot makes this 1% appear negligible or almost invisible.
+    3. **Tail Integrity:** By stretching the lower frequencies, the log-scale plot maintains "tail integrity," ensuring policy-makers do not underestimate the probability of values reaching life-threatening levels (>200 µg/m³).
+    """.format(p99))
 
 
 def create_bivariate_map(merged_data, selected_param='pm25'):
@@ -1581,7 +1258,7 @@ def main():
         run_task_2(df)
     
     with tab3:
-        st.info("Task 3 content will be added here")
+        run_task_3(df)
     
     with tab4:
         run_task_4(df)
